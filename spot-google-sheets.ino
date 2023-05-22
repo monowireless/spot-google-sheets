@@ -6,7 +6,7 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
-// Third-party libraries
+// Third-party library
 #include <ESP_Google_Sheet_Client.h>
 
 // Mono Wireless TWELITE Wings API for 32-bit Arduinos
@@ -81,7 +81,7 @@ void setup() {
     Serial.println("Hello, this is TWELITE SPOT.");
 
     // Init Queue
-    Serial.println("Initializing queues...");
+    Serial.println("Initializing queue...");
     ariaPacketQueue = xQueueCreate(ARIA_BUFFER_PACKETS, sizeof(ParsedAppAriaPacketWithTime));
     if (ariaPacketQueue == 0) { Serial.println("Failed to init a queue."); }
     Serial.println("Completed.");
