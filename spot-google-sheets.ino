@@ -8,6 +8,7 @@
 
 // Third-party library
 #include <ESP_Google_Sheet_Client.h>
+#include <TimeLib.h>
 
 // Mono Wireless TWELITE Wings API for 32-bit Arduinos
 #include <MWings.h>
@@ -44,12 +45,13 @@ constexpr int ARIA_BUFFER_PACKETS = 32;    // Max number of rows per addition re
 // Type definitions
 struct ParsedAppAriaPacketWithTime {
     ParsedAppAriaPacket packet;
-    uint32_t timestamp;
+    uint32_t elapsedMillis;
+    uint32_t unixTime;
 };
 
 // Global objects
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "ntp.nict.jp", 32400);    // For filenames
+NTPClient timeClient(ntpUDP, "ntp.nict.jp");
 
 String spreadsheetIdString;    // Identifier of newly created file
 bool readyForNewRequests = false;
@@ -64,7 +66,7 @@ void anotherLoop();
 void waitUntilNewRequestsReady();
 String createSpreadsheet();
 bool formatSheet(const String spreadsheetId, const int sheetId);
-bool extendSheetWithFormat(const String spreadsheetId, const int sheetId, const int rows);
+bool extendSheet(const String spreadsheetId, const int sheetId, const int rows);
 bool addSheetAriaHeaderRow(const String spreadsheetId, const char* const sheetTitle);
 bool addSheetsDataRow(const String spreadsheetId);
 
@@ -92,7 +94,8 @@ void setup() {
     Twelite.on([](const ParsedAppAriaPacket& packet) {
         Serial.println("Got a new packet from ARIA.");
         ParsedAppAriaPacketWithTime packetWithTime;
-        packetWithTime.timestamp = millis();
+        packetWithTime.elapsedMillis = millis();
+        packetWithTime.unixTime = timeClient.getEpochTime();
         packetWithTime.packet = packet;
         if (not(xQueueSend(ariaPacketQueue, &packetWithTime, 0) == pdPASS)) {
             Serial.println("Failed to add packet data to the queue.");
@@ -165,7 +168,7 @@ void setup() {
     Serial.println("Extending the sheet for ARIA...");
     delay(MIN_REQUEST_INTERVAL);
     waitUntilNewRequestsReady();
-    if (not extendSheetWithFormat(spreadsheetIdString, ARIA_SHEET_ID, SHEETS_ROWS - SHEETS_DEFAULT_ROWS)) {
+    if (not extendSheet(spreadsheetIdString, ARIA_SHEET_ID, SHEETS_ROWS - SHEETS_DEFAULT_ROWS)) {
         Serial.println("Failed to extend.");
     }
 
@@ -215,8 +218,13 @@ String createSpreadsheet() {
     if (not readyForNewRequests) { return String(""); }
 
     FirebaseJson spreadsheet;
-    char titleCString[64];
-    sprintf(titleCString, "%s (%d)", SPREADSHEET_TITLE_PREFIX, timeClient.getEpochTime());
+    char titleCString[33];
+    setTime(timeClient.getEpochTime() + 32400);    // Set TimeLib to current time (JST)
+    // PREFIX (yyyy-MM-dd hh:mm:ss)
+    sprintf(titleCString, "%s (%04d-%02d-%02d %02d:%02d:%02d)",
+            SPREADSHEET_TITLE_PREFIX,
+            year(), month(), day(),
+            hour(), minute(), second());
     spreadsheet.set("properties/title", titleCString);
     spreadsheet.set("properties/locale", SPREADSHEET_LOCALE);
     spreadsheet.set("properties/timeZone", SPREADSHEET_TIME_ZONE);
@@ -255,63 +263,73 @@ bool formatSheet(const String spreadsheetId, const int sheetId) {
 
     FirebaseJsonArray requests;
 
-    FirebaseJson columnShrinkRequest;
-    columnShrinkRequest.set("deleteDimension/range/sheetId", sheetId);
-    columnShrinkRequest.set("deleteDimension/range/dimension", "COLUMNS");
-    columnShrinkRequest.set("deleteDimension/range/startIndex", 10);    // From the Column K
-    requests.add(columnShrinkRequest);
+    FirebaseJson ariaColumnShrinkRequest;
+    ariaColumnShrinkRequest.set("deleteDimension/range/sheetId", sheetId);
+    ariaColumnShrinkRequest.set("deleteDimension/range/dimension", "COLUMNS");
+    ariaColumnShrinkRequest.set("deleteDimension/range/startIndex", 10);    // From the Column K
+    requests.add(ariaColumnShrinkRequest);
 
-    FirebaseJson headerFormatRequest;
-    headerFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    headerFormatRequest.set("repeatCell/range/startRowIndex", 0);    // Only the header row
-    headerFormatRequest.set("repeatCell/range/endRowIndex", 1);
-    headerFormatRequest.set("repeatCell/cell/userEnteredFormat/horizontalAlignment", "LEFT");
-    headerFormatRequest.set("repeatCell/cell/userEnteredFormat/textFormat/bold", true);
-    headerFormatRequest.set("repeatCell/fields", "userEnteredFormat(horizontalAlignment, textFormat)");
-    requests.add(headerFormatRequest);
+    FirebaseJson ariaHeaderFormatRequest;
+    ariaHeaderFormatRequest.set("repeatCell/range/sheetId", sheetId);
+    ariaHeaderFormatRequest.set("repeatCell/range/startRowIndex", 0);    // Only the header row
+    ariaHeaderFormatRequest.set("repeatCell/range/endRowIndex", 1);
+    ariaHeaderFormatRequest.set("repeatCell/cell/userEnteredFormat/horizontalAlignment", "LEFT");
+    ariaHeaderFormatRequest.set("repeatCell/cell/userEnteredFormat/textFormat/bold", true);
+    ariaHeaderFormatRequest.set("repeatCell/fields", "userEnteredFormat(horizontalAlignment, textFormat)");
+    requests.add(ariaHeaderFormatRequest);
 
-    FirebaseJson headerFreezeRequest;
-    headerFreezeRequest.set("updateSheetProperties/properties/sheetId", sheetId);
-    headerFreezeRequest.set("updateSheetProperties/properties/gridProperties/frozenRowCount", 1);
-    headerFreezeRequest.set("updateSheetProperties/fields", "gridProperties.frozenRowCount");
-    requests.add(headerFreezeRequest);
+    FirebaseJson ariaHeaderFreezeRequest;
+    ariaHeaderFreezeRequest.set("updateSheetProperties/properties/sheetId", sheetId);
+    ariaHeaderFreezeRequest.set("updateSheetProperties/properties/gridProperties/frozenRowCount", 1);
+    ariaHeaderFreezeRequest.set("updateSheetProperties/fields", "gridProperties.frozenRowCount");
+    requests.add(ariaHeaderFreezeRequest);
 
-    FirebaseJson formatRequest;
-    formatRequest.set("repeatCell/range/sheetId", sheetId);
-    formatRequest.set("repeatCell/range/startRowIndex", 1);    // Below the header row
-    formatRequest.set("repeatCell/cell/userEnteredFormat/horizontalAlignment", "RIGHT");
-    formatRequest.set("repeatCell/fields", "userEnteredFormat.horizontalAlignment");
-    requests.add(formatRequest);
+    FirebaseJson ariaFormatRequest;
+    ariaFormatRequest.set("repeatCell/range/sheetId", sheetId);
+    ariaFormatRequest.set("repeatCell/range/startRowIndex", 1);    // Below the header row
+    ariaFormatRequest.set("repeatCell/cell/userEnteredFormat/horizontalAlignment", "RIGHT");
+    ariaFormatRequest.set("repeatCell/fields", "userEnteredFormat.horizontalAlignment");
+    requests.add(ariaFormatRequest);
 
-    FirebaseJson timeFormatRequest;
-    timeFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    timeFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    timeFormatRequest.set("repeatCell/range/startColumnIndex", 3);
-    timeFormatRequest.set("repeatCell/range/endColumnIndex", 4);
-    timeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
-    timeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.0");
-    timeFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(timeFormatRequest);
+    FirebaseJson ariaDateTimeFormatRequest;
+    ariaDateTimeFormatRequest.set("repeatCell/range/sheetId", sheetId);
+    ariaDateTimeFormatRequest.set("repeatCell/range/startRowIndex", 1);
+    ariaDateTimeFormatRequest.set("repeatCell/range/startColumnIndex", 3);
+    ariaDateTimeFormatRequest.set("repeatCell/range/endColumnIndex", 4);
+    ariaDateTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "DATE_TIME");
+    ariaDateTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "yyyy/mm/dd (ddd) hh:mm:ss");
+    ariaDateTimeFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
+    requests.add(ariaDateTimeFormatRequest);
 
-    FirebaseJson tempFormatRequest;
-    tempFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    tempFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    tempFormatRequest.set("repeatCell/range/startColumnIndex", 4);
-    tempFormatRequest.set("repeatCell/range/endColumnIndex", 5);
-    tempFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
-    tempFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.00");
-    tempFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(tempFormatRequest);
+    FirebaseJson ariaElapsedTimeFormatRequest;
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/sheetId", sheetId);
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/startRowIndex", 1);
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/startColumnIndex", 4);
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/endColumnIndex", 5);
+    ariaElapsedTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "TIME");
+    ariaElapsedTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "[hh]:[mm]:[ss].000");
+    ariaElapsedTimeFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
+    requests.add(ariaElapsedTimeFormatRequest);
 
-    FirebaseJson humidFormatRequest;
-    humidFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    humidFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    humidFormatRequest.set("repeatCell/range/startColumnIndex", 5);
-    humidFormatRequest.set("repeatCell/range/endColumnIndex", 6);
-    humidFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
-    humidFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.00");
-    humidFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(humidFormatRequest);
+    FirebaseJson ariaTemperatureFormatRequest;
+    ariaTemperatureFormatRequest.set("repeatCell/range/sheetId", sheetId);
+    ariaTemperatureFormatRequest.set("repeatCell/range/startRowIndex", 1);
+    ariaTemperatureFormatRequest.set("repeatCell/range/startColumnIndex", 5);
+    ariaTemperatureFormatRequest.set("repeatCell/range/endColumnIndex", 6);
+    ariaTemperatureFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
+    ariaTemperatureFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.00");
+    ariaTemperatureFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
+    requests.add(ariaTemperatureFormatRequest);
+
+    FirebaseJson ariaHumidityFormatRequest;
+    ariaHumidityFormatRequest.set("repeatCell/range/sheetId", sheetId);
+    ariaHumidityFormatRequest.set("repeatCell/range/startRowIndex", 1);
+    ariaHumidityFormatRequest.set("repeatCell/range/startColumnIndex", 6);
+    ariaHumidityFormatRequest.set("repeatCell/range/endColumnIndex", 7);
+    ariaHumidityFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
+    ariaHumidityFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.00");
+    ariaHumidityFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
+    requests.add(ariaHumidityFormatRequest);
 
     String response;
     Serial.println("Requesting to format...");
@@ -332,7 +350,7 @@ bool formatSheet(const String spreadsheetId, const int sheetId) {
 
 // Extend sheets
 // REST Reference: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/batchUpdate
-bool extendSheetWithFormat(const String spreadsheetId, const int sheetId, const int rows) {
+bool extendSheet(const String spreadsheetId, const int sheetId, const int rows) {
     if (not readyForNewRequests) { return false; }
     if (not(rows >= 0)) { return false; }
 
@@ -343,43 +361,6 @@ bool extendSheetWithFormat(const String spreadsheetId, const int sheetId, const 
     extendRequest.set("appendDimension/dimension", "ROWS");
     extendRequest.set("appendDimension/length", rows);
     requests.add(extendRequest);
-
-    FirebaseJson formatRequest;
-    formatRequest.set("repeatCell/range/sheetId", sheetId);
-    formatRequest.set("repeatCell/range/startRowIndex", 1);    // Below the header row
-    formatRequest.set("repeatCell/cell/userEnteredFormat/horizontalAlignment", "RIGHT");
-    formatRequest.set("repeatCell/fields", "userEnteredFormat.horizontalAlignment");
-    requests.add(formatRequest);
-
-    FirebaseJson timeFormatRequest;
-    timeFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    timeFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    timeFormatRequest.set("repeatCell/range/startColumnIndex", 3);
-    timeFormatRequest.set("repeatCell/range/endColumnIndex", 4);
-    timeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
-    timeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.0");
-    timeFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(timeFormatRequest);
-
-    FirebaseJson tempFormatRequest;
-    tempFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    tempFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    tempFormatRequest.set("repeatCell/range/startColumnIndex", 4);
-    tempFormatRequest.set("repeatCell/range/endColumnIndex", 5);
-    tempFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
-    tempFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.00");
-    tempFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(tempFormatRequest);
-
-    FirebaseJson humidFormatRequest;
-    humidFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    humidFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    humidFormatRequest.set("repeatCell/range/startColumnIndex", 5);
-    humidFormatRequest.set("repeatCell/range/endColumnIndex", 6);
-    humidFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "NUMBER");
-    humidFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "#.00");
-    humidFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(humidFormatRequest);
 
     String response;
     Serial.println("Requesting to extend...");
@@ -407,18 +388,19 @@ bool addSheetAriaHeaderRow(const String spreadsheetId, const char* const sheetTi
 
     FirebaseJson ariaHeaderValueRange;
     char rangeCString[13];
-    sprintf(rangeCString, "%s!A1:I1", sheetTitle);
+    sprintf(rangeCString, "%s!A1:J1", sheetTitle);
     ariaHeaderValueRange.add("range", rangeCString);    // Target range (A1 format)
     ariaHeaderValueRange.add("majorDimension", "COLUMNS");
-    ariaHeaderValueRange.set("values/[0]/[0]", "Serial ID");      // Column A
-    ariaHeaderValueRange.set("values/[1]/[0]", "Logical ID");     // Column B
-    ariaHeaderValueRange.set("values/[2]/[0]", "Packet");         // Column C
-    ariaHeaderValueRange.set("values/[3]/[0]", "Time RX [s]");    // Column D
-    ariaHeaderValueRange.set("values/[4]/[0]", "Temp [°C]");      // Column E
-    ariaHeaderValueRange.set("values/[5]/[0]", "Humid [%]");      // Column F
-    ariaHeaderValueRange.set("values/[6]/[0]", "Magnet");         // Column G
-    ariaHeaderValueRange.set("values/[7]/[0]", "LQI");            // Column H
-    ariaHeaderValueRange.set("values/[8]/[0]", "Power [mV]");     // Column I
+    ariaHeaderValueRange.set("values/[0]/[0]", "Serial ID");       // Column A
+    ariaHeaderValueRange.set("values/[1]/[0]", "Logical ID");      // Column B
+    ariaHeaderValueRange.set("values/[2]/[0]", "Packet");          // Column C
+    ariaHeaderValueRange.set("values/[3]/[0]", "Date / Time");     // Column D
+    ariaHeaderValueRange.set("values/[4]/[0]", "Elapsed Time");    // Column E
+    ariaHeaderValueRange.set("values/[5]/[0]", "Temp [°C]");       // Column F
+    ariaHeaderValueRange.set("values/[6]/[0]", "Humid [%]");       // Column G
+    ariaHeaderValueRange.set("values/[7]/[0]", "Magnet");          // Column H
+    ariaHeaderValueRange.set("values/[8]/[0]", "LQI");             // Column I
+    ariaHeaderValueRange.set("values/[9]/[0]", "Power [mV]");      // Column J
 
     valueRanges.add(ariaHeaderValueRange);
 
@@ -464,7 +446,7 @@ bool addSheetsDataRow(const String spreadsheetId) {
         FirebaseJson ariaValueRange;
         // Target range (A1 format)
         char rangeCString[31];
-        sprintf(rangeCString, "%s!A%d:I%d", ARIA_SHEET_TITLE, rowToAddNewAriaData + i, rowToAddNewAriaData + i);
+        sprintf(rangeCString, "%s!A%d:J%d", ARIA_SHEET_TITLE, rowToAddNewAriaData + i, rowToAddNewAriaData + i);
         ariaValueRange.add("range", rangeCString);
         ariaValueRange.add("majorDimension", "COLUMNS");
         // Column A
@@ -480,18 +462,21 @@ bool addSheetsDataRow(const String spreadsheetId) {
         sprintf(packetNumberCString, "%d", packetWithTime.packet.u16SequenceNumber);
         ariaValueRange.set("values/[2]/[0]", packetNumberCString);
         // Column D
-        char timeReceivedCString[11];
-        sprintf(timeReceivedCString, "%.2f", packetWithTime.timestamp / 1000.0);
-        ariaValueRange.set("values/[3]/[0]", timeReceivedCString);
+        uint32_t googleDateTimeInSec  = packetWithTime.unixTime + 2209161600;
+        float googleDateTime = static_cast<float>(googleDateTimeInSec / 86400.0f);
+        ariaValueRange.set("values/[3]/[0]", googleDateTime);
         // Column E
+        float googleElapsedTime = static_cast<float>(packetWithTime.elapsedMillis / 86400000.0f);
+        ariaValueRange.set("values/[4]/[0]", googleElapsedTime);
+        // Column F
         char temperatureCString[7];
         sprintf(temperatureCString, "%5.2f", packetWithTime.packet.i16Temp100x / 100.0f);
-        ariaValueRange.set("values/[4]/[0]", temperatureCString);
-        // Column F
+        ariaValueRange.set("values/[5]/[0]", temperatureCString);
+        // Column G
         char humidityCString[6];
         sprintf(humidityCString, "%5.2f", packetWithTime.packet.u16Humid100x / 100.0f);
-        ariaValueRange.set("values/[5]/[0]", humidityCString);
-        // Column G
+        ariaValueRange.set("values/[6]/[0]", humidityCString);
+        // Column H
         char magnetCString[4];
         switch (packetWithTime.packet.u8MagnetState) {
         case 0x00: {
@@ -510,15 +495,15 @@ bool addSheetsDataRow(const String spreadsheetId) {
             sprintf(magnetCString, "%s", "ERR");
             break;
         }
-        ariaValueRange.set("values/[6]/[0]", magnetCString);
-        // Column H
+        ariaValueRange.set("values/[7]/[0]", magnetCString);
+        // Column I
         char lqiCString[4];
         sprintf(lqiCString, "%d", packetWithTime.packet.u8Lqi);
-        ariaValueRange.set("values/[7]/[0]", lqiCString);
-        // Column I
+        ariaValueRange.set("values/[8]/[0]", lqiCString);
+        // Column J
         char supplyVoltageCString[5];
         sprintf(supplyVoltageCString, "%d", packetWithTime.packet.u16SupplyVoltage);
-        ariaValueRange.set("values/[8]/[0]", supplyVoltageCString);
+        ariaValueRange.set("values/[9]/[0]", supplyVoltageCString);
 
         valueRanges.add(ariaValueRange);
         ariaRowCount++;
