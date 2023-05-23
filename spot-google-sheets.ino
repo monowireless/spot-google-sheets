@@ -51,7 +51,7 @@ struct ParsedAppAriaPacketWithTime {
 
 // Global objects
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "ntp.nict.jp");
+NTPClient timeClient(ntpUDP, "ntp.nict.jp", 32400);
 
 String spreadsheetIdString;    // Identifier of newly created file
 bool readyForNewRequests = false;
@@ -219,7 +219,7 @@ String createSpreadsheet() {
 
     FirebaseJson spreadsheet;
     char titleCString[33];
-    setTime(timeClient.getEpochTime() + 32400);    // Set TimeLib to current time (JST)
+    setTime(timeClient.getEpochTime());    // Set TimeLib to current time
     // PREFIX (yyyy-MM-dd hh:mm:ss)
     sprintf(titleCString, "%s (%04d-%02d-%02d %02d:%02d:%02d)",
             SPREADSHEET_TITLE_PREFIX,
