@@ -67,7 +67,7 @@ uint32_t rowToAddNewAriaData = 2;    // Starting with the Row 2
 void anotherLoop();
 
 void waitUntilNewRequestsReady();
-String createSpreadSheet();
+String createSpreadsheet();
 bool formatSheet(const String spreadsheetId, const int sheetId);
 bool extendSheetWithFormat(const String spreadsheetId, const int sheetId, const int rows);
 bool addSheetAriaHeaderRow(const String spreadsheetId, const char* const sheetTitle);
@@ -148,7 +148,7 @@ void setup() {
 
     Serial.println("Creating sheets...");
     waitUntilNewRequestsReady();    // Wait for token
-    spreadsheetIdString = createSpreadSheet();
+    spreadsheetIdString = createSpreadsheet();
     if (not(spreadsheetIdString.length() > 0)) { Serial.println("Failed to create sheets."); }
 
     Serial.println("Adding headers for ARIA...");
@@ -208,7 +208,7 @@ void waitUntilNewRequestsReady() {
 
 // Create a spreadsheet
 // Note: Drive API is required in addition to Sheets API
-String createSpreadSheet() {
+String createSpreadsheet() {
     if (not readyForNewRequests) { return String(""); }
 
     FirebaseJson spreadsheet;
