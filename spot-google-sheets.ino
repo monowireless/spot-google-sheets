@@ -258,8 +258,15 @@ bool formatSheet(const String spreadsheetId, const int sheetId) {
     headerFormatRequest.set("repeatCell/range/startRowIndex", 0);    // Only the header row
     headerFormatRequest.set("repeatCell/range/endRowIndex", 1);
     headerFormatRequest.set("repeatCell/cell/userEnteredFormat/horizontalAlignment", "LEFT");
-    headerFormatRequest.set("repeatCell/fields", "userEnteredFormat.horizontalAlignment");
+    headerFormatRequest.set("repeatCell/cell/userEnteredFormat/textFormat/bold", true);
+    headerFormatRequest.set("repeatCell/fields", "userEnteredFormat(horizontalAlignment, textFormat)");
     requests.add(headerFormatRequest);
+
+    FirebaseJson headerFreezeRequest;
+    headerFreezeRequest.set("updateSheetProperties/properties/sheetId", sheetId);
+    headerFreezeRequest.set("updateSheetProperties/properties/gridProperties/frozenRowCount", 1);
+    headerFreezeRequest.set("updateSheetProperties/fields", "gridProperties.frozenRowCount");
+    requests.add(headerFreezeRequest);
 
     FirebaseJson formatRequest;
     formatRequest.set("repeatCell/range/sheetId", sheetId);
