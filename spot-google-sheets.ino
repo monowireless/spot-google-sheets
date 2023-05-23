@@ -12,6 +12,9 @@
 // Mono Wireless TWELITE Wings API for 32-bit Arduinos
 #include <MWings.h>
 
+// Local configs
+#include "config.h"
+
 // Pin defs
 const uint8_t TWE_RST = 5;
 const uint8_t TWE_PRG = 4;
@@ -25,22 +28,14 @@ const uint32_t TWE_APPID = 0x67720102;
 const uint8_t TWE_RETRY = 2;
 const uint8_t TWE_POWER = 3;
 
-// Wi-Fi defs
-const char* WIFI_SSID = "YOUR SSID";            // Modify it
-const char* WIFI_PASSWORD = "YOUR PASSWORD";    // Modify it
-
-// Sheet defs
-const char* PROJECT_ID = "YOUR-PROJECT-ID";                                                                         // Modify it
-const char* SERVICE_ACCOUNT_EMAIL = "YOUR-SERVICE-ACCOUNT@YOUR-PROJECT-ID.iam.gserviceaccount.com";                 // Modify it
-const char PRIVATE_KEY[] PROGMEM = "-----BEGIN PRIVATE KEY-----\nYOUR-PRIVATE-KEY\n-----END PRIVATE KEY-----\n";    // Modify it
-const char* USER_ACCOUNT_EMAIL = "YOUR-ACCOUNT@EMAIL";                                                              // Modify it
-
 const char* SPREADSHEET_TITLE_PREFIX = "SPOT Sheet";
 const char* SPREADSHEET_LOCALE = "ja_JP";
 const char* SPREADSHEET_TIME_ZONE = "Asia/Tokyo";
 
-const int SHEETS_DEFAULT_ROWS = 1000;            // Default length is 1000 rows
-const int SHEETS_MIN_REQUEST_INTERVAL = 1000;    // 60 requests per minute
+const int MIN_REQUEST_INTERVAL = 1000;    // 60 requests per minute
+
+const int SHEETS_DEFAULT_ROWS = 1000;    // Default length is 1000 rows
+const int SHEETS_ROWS = 100000;          // Max 1,000,000 rows at 10 columns
 
 const int ARIA_SHEET_ID = 1;
 const char* ARIA_SHEET_TITLE = "ARIA";
@@ -149,17 +144,30 @@ void setup() {
     Serial.println("Creating sheets...");
     waitUntilNewRequestsReady();    // Wait for token
     spreadsheetIdString = createSpreadsheet();
-    if (not(spreadsheetIdString.length() > 0)) { Serial.println("Failed to create sheets."); }
+    if (not(spreadsheetIdString.length() > 0)) {
+        Serial.println("Failed to create sheets.");
+    }
 
     Serial.println("Adding headers for ARIA...");
-    delay(SHEETS_MIN_REQUEST_INTERVAL);
+    delay(MIN_REQUEST_INTERVAL);
     waitUntilNewRequestsReady();
-    if (not addSheetAriaHeaderRow(spreadsheetIdString, ARIA_SHEET_TITLE)) { Serial.println("Failed to add headers."); }
+    if (not addSheetAriaHeaderRow(spreadsheetIdString, ARIA_SHEET_TITLE)) {
+        Serial.println("Failed to add headers.");
+    }
 
     Serial.println("Formatting the sheet for ARIA...");
-    delay(SHEETS_MIN_REQUEST_INTERVAL);
+    delay(MIN_REQUEST_INTERVAL);
     waitUntilNewRequestsReady();
-    if (not formatSheet(spreadsheetIdString, ARIA_SHEET_ID)) { Serial.println("Failed to format."); }
+    if (not formatSheet(spreadsheetIdString, ARIA_SHEET_ID)) {
+        Serial.println("Failed to format.");
+    }
+
+    Serial.println("Extending the sheet for ARIA...");
+    delay(MIN_REQUEST_INTERVAL);
+    waitUntilNewRequestsReady();
+    if (not extendSheetWithFormat(spreadsheetIdString, ARIA_SHEET_ID, SHEETS_ROWS - SHEETS_DEFAULT_ROWS)) {
+        Serial.println("Failed to extend.");
+    }
 
     Serial.println("Completed.");
 
@@ -178,14 +186,8 @@ void setup() {
 // loop procedure
 void loop() {
     // Due to the API limitation, "Throttle" requests (like JavaScript)
-    if (millis() - lastTimeRequestWasSent > SHEETS_MIN_REQUEST_INTERVAL) {
-        // Extend the sheet for ARIA if needed
-        if (SHEETS_DEFAULT_ROWS - (rowToAddNewAriaData % SHEETS_DEFAULT_ROWS) < uxQueueMessagesWaiting(ariaPacketQueue)) {    // Will reach to the bottom row
-            extendSheetWithFormat(spreadsheetIdString, ARIA_SHEET_ID, SHEETS_DEFAULT_ROWS);                                   // Add 1000 rows (as default)
-            delay(SHEETS_MIN_REQUEST_INTERVAL);
-            waitUntilNewRequestsReady();
-        }
-        // Add data received
+    if (millis() - lastTimeRequestWasSent > MIN_REQUEST_INTERVAL) {
+        // Add available data
         addSheetsDataRow(spreadsheetIdString);
     }
     readyForNewRequests = GSheet.ready();
@@ -252,6 +254,12 @@ bool formatSheet(const String spreadsheetId, const int sheetId) {
     if (not readyForNewRequests) { return false; }
 
     FirebaseJsonArray requests;
+
+    FirebaseJson columnShrinkRequest;
+    columnShrinkRequest.set("deleteDimension/range/sheetId", sheetId);
+    columnShrinkRequest.set("deleteDimension/range/dimension", "COLUMNS");
+    columnShrinkRequest.set("deleteDimension/range/startIndex", 10);    // From the Column K
+    requests.add(columnShrinkRequest);
 
     FirebaseJson headerFormatRequest;
     headerFormatRequest.set("repeatCell/range/sheetId", sheetId);
@@ -440,7 +448,7 @@ bool addSheetsDataRow(const String spreadsheetId) {
     uint32_t availableAriaPackets = uxQueueMessagesWaiting(ariaPacketQueue);
 
     if (not(availableAriaPackets > 0)) {
-        Serial.println("ARIA packets are unavailable");
+        Serial.println("There's no ARIA packet. Skip.");
         return false;
     }
 
@@ -537,7 +545,6 @@ bool addSheetsDataRow(const String spreadsheetId) {
     Serial.println("Failed to request data addition.");
     return false;
 }
-
 
 /*
  * Copyright (C) 2023 Mono Wireless Inc. All Rights Reserved.
