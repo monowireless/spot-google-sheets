@@ -21,6 +21,8 @@ ESP32 をクラウドゲートウェイとして使います。
 
 TWELITE ARIA から受信したデータを Google スプレッドシートへアップロードできます。
 
+スケッチ解説：[Google スプレッドシートの利用 | TWELITE SPOT マニュアル](https://twelite.net/manuals/twelite-spot/example-sketches/advanced-examples/spot-google-sheets/latest.html)
+
 ## 使用方法
 
 1. Google Sheets / Drive API を有効化したのち、これらの API を使うためのサービスアカウントを作成します
