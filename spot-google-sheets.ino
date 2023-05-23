@@ -163,7 +163,7 @@ void setup() {
 
     Serial.println("Completed.");
 
-    // Assign a FreeRTOS task to the Core 1 for the another loop procedure updating TWELITE
+    // Assign a FreeRTOS task to the Core 0 for the another loop procedure updating TWELITE
     // Note: Core 0 is also used for the WiFi task, which priority is 19 (ESP_TASKD_EVENT_PRIO - 1)
     xTaskCreatePinnedToCore(
         [](void* params) {
@@ -208,6 +208,7 @@ void waitUntilNewRequestsReady() {
 
 // Create a spreadsheet
 // Note: Drive API is required in addition to Sheets API
+// REST Reference: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/create
 String createSpreadsheet() {
     if (not readyForNewRequests) { return String(""); }
 
@@ -246,6 +247,7 @@ String createSpreadsheet() {
 }
 
 // Format sheets
+// REST Reference: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/batchUpdate
 bool formatSheet(const String spreadsheetId, const int sheetId) {
     if (not readyForNewRequests) { return false; }
 
@@ -314,6 +316,7 @@ bool formatSheet(const String spreadsheetId, const int sheetId) {
 }
 
 // Extend sheets
+// REST Reference: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/batchUpdate
 bool extendSheetWithFormat(const String spreadsheetId, const int sheetId, const int rows) {
     if (not readyForNewRequests) { return false; }
     if (not(rows >= 0)) { return false; }
@@ -381,6 +384,7 @@ bool extendSheetWithFormat(const String spreadsheetId, const int sheetId, const 
 }
 
 // Add a header row for ARIA data
+// REST Reference: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets.values/batchUpdate
 bool addSheetAriaHeaderRow(const String spreadsheetId, const char* const sheetTitle) {
     if (not readyForNewRequests) { return false; }
 
@@ -421,6 +425,7 @@ bool addSheetAriaHeaderRow(const String spreadsheetId, const char* const sheetTi
 }
 
 // Add data received
+// REST Reference: https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets.values/batchUpdate
 bool addSheetsDataRow(const String spreadsheetId) {
     if (not readyForNewRequests) { return false; }
 
