@@ -291,6 +291,15 @@ bool formatSheet(const String spreadsheetId, const int sheetId) {
     ariaFormatRequest.set("repeatCell/fields", "userEnteredFormat.horizontalAlignment");
     requests.add(ariaFormatRequest);
 
+    FirebaseJson ariaElapsedTimeFormatRequest;
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/sheetId", sheetId);
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/startRowIndex", 1);
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/startColumnIndex", 4);
+    ariaElapsedTimeFormatRequest.set("repeatCell/range/endColumnIndex", 5);
+    ariaElapsedTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "TEXT");
+    ariaElapsedTimeFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
+    requests.add(ariaElapsedTimeFormatRequest);
+
     FirebaseJson ariaTemperatureFormatRequest;
     ariaTemperatureFormatRequest.set("repeatCell/range/sheetId", sheetId);
     ariaTemperatureFormatRequest.set("repeatCell/range/startRowIndex", 1);
@@ -444,17 +453,21 @@ bool addSheetsDataRow(const String spreadsheetId) {
         // Column D
         char dateTimeCString[20];
         setTime(timeClient.getEpochTime());
-        sprintf(dateTimeCString, "%04d/%02d/%02d %02d:%02d:%02d", // yyyy/MM/dd hh:mm:ss
+        sprintf(dateTimeCString, "%04d/%02d/%02d %02d:%02d:%02d",    // yyyy/MM/dd hh:mm:ss
                 year(), month(), day(),
                 hour(), minute(), second());
         ariaValueRange.set("values/[3]/[0]", dateTimeCString);
         // Column E
         char elapsedTimeCString[20];
-        sprintf(elapsedTimeCString, "%d:%02d:%02d.%03d", // h+:mm:ss.SSS
-                packetWithTime.elapsedMillis / 3600000,
-                packetWithTime.elapsedMillis / 60000,
-                packetWithTime.elapsedMillis / 1000,
-                packetWithTime.elapsedMillis % 1000);
+        int etMillis = packetWithTime.elapsedMillis;
+        int etSecs = etMillis / 1000;
+        etMillis %= 1000;
+        int etMins = etSecs / 60;
+        etSecs %= 60;
+        int etHours = etMins / 60;
+        etMins %= 60;
+        sprintf(elapsedTimeCString, "%d:%02d:%02d.%03d",    // hh:mm:ss.SSS
+                etHours, etMins, etSecs, etMillis);
         ariaValueRange.set("values/[4]/[0]", elapsedTimeCString);
         // Column F
         char temperatureCString[7];
