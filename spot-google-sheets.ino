@@ -291,26 +291,6 @@ bool formatSheet(const String spreadsheetId, const int sheetId) {
     ariaFormatRequest.set("repeatCell/fields", "userEnteredFormat.horizontalAlignment");
     requests.add(ariaFormatRequest);
 
-    FirebaseJson ariaDateTimeFormatRequest;
-    ariaDateTimeFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    ariaDateTimeFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    ariaDateTimeFormatRequest.set("repeatCell/range/startColumnIndex", 3);
-    ariaDateTimeFormatRequest.set("repeatCell/range/endColumnIndex", 4);
-    ariaDateTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "DATE_TIME");
-    ariaDateTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "yyyy/mm/dd (ddd) hh:mm:ss");
-    ariaDateTimeFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(ariaDateTimeFormatRequest);
-
-    FirebaseJson ariaElapsedTimeFormatRequest;
-    ariaElapsedTimeFormatRequest.set("repeatCell/range/sheetId", sheetId);
-    ariaElapsedTimeFormatRequest.set("repeatCell/range/startRowIndex", 1);
-    ariaElapsedTimeFormatRequest.set("repeatCell/range/startColumnIndex", 4);
-    ariaElapsedTimeFormatRequest.set("repeatCell/range/endColumnIndex", 5);
-    ariaElapsedTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/type", "TIME");
-    ariaElapsedTimeFormatRequest.set("repeatCell/cell/userEnteredFormat/numberFormat/pattern", "[hh]:[mm]:[ss].000");
-    ariaElapsedTimeFormatRequest.set("repeatCell/fields", "userEnteredFormat.numberFormat(type, pattern)");
-    requests.add(ariaElapsedTimeFormatRequest);
-
     FirebaseJson ariaTemperatureFormatRequest;
     ariaTemperatureFormatRequest.set("repeatCell/range/sheetId", sheetId);
     ariaTemperatureFormatRequest.set("repeatCell/range/startRowIndex", 1);
@@ -462,12 +442,20 @@ bool addSheetsDataRow(const String spreadsheetId) {
         sprintf(packetNumberCString, "%d", packetWithTime.packet.u16SequenceNumber);
         ariaValueRange.set("values/[2]/[0]", packetNumberCString);
         // Column D
-        uint32_t googleDateTimeInSec  = packetWithTime.unixTime + 2209161600;
-        float googleDateTime = static_cast<float>(googleDateTimeInSec / 86400.0f);
-        ariaValueRange.set("values/[3]/[0]", googleDateTime);
+        char dateTimeCString[20];
+        setTime(timeClient.getEpochTime());
+        sprintf(dateTimeCString, "%04d/%02d/%02d %02d:%02d:%02d", // yyyy/MM/dd hh:mm:ss
+                year(), month(), day(),
+                hour(), minute(), second());
+        ariaValueRange.set("values/[3]/[0]", dateTimeCString);
         // Column E
-        float googleElapsedTime = static_cast<float>(packetWithTime.elapsedMillis / 86400000.0f);
-        ariaValueRange.set("values/[4]/[0]", googleElapsedTime);
+        char elapsedTimeCString[20];
+        sprintf(elapsedTimeCString, "%d:%02d:%02d.%03d", // h+:mm:ss.SSS
+                packetWithTime.elapsedMillis / 3600000,
+                packetWithTime.elapsedMillis / 60000,
+                packetWithTime.elapsedMillis / 1000,
+                packetWithTime.elapsedMillis % 1000);
+        ariaValueRange.set("values/[4]/[0]", elapsedTimeCString);
         // Column F
         char temperatureCString[7];
         sprintf(temperatureCString, "%5.2f", packetWithTime.packet.i16Temp100x / 100.0f);
